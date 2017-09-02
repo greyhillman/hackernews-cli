@@ -21,6 +21,7 @@ library
                      , aeson
                      , lens
                      , scalpel
+                     , tagsoup
   default-language:    Haskell2010
 
 executable hackernews-cli-exe
