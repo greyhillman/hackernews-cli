@@ -3,17 +3,17 @@ module Main where
 
 import Lib
 import Control.Monad
+import Control.Concurrent.ParallelIO
 
 
-printSimplePost :: Int -> String -> IO ()
-printSimplePost x title = do
-    putStrLn $ (show x) ++ " " ++ title
+printSimplePost :: Int -> Story -> IO ()
+printSimplePost x (Story { storyTitle }) = do
+    putStrLn $ (show x) ++ " " ++ storyTitle
 
 main :: IO ()
 main = do
-    posts <- getTopStories
-    case posts of
-        Just xs -> do
-            zipWithM printSimplePost [1..] xs
-            return ()
-        Nothing -> putStrLn "Failed to get HackerNews"
+    topStories <- getTopStories
+    topStories' <- parallel $ take 30 topStories
+    zipWithM_ printSimplePost [1..] topStories'
+    stopGlobalPool
+    

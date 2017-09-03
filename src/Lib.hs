@@ -1,29 +1,58 @@
 {-# LANGUAGE OverloadedStrings, DeriveGeneric, ScopedTypeVariables #-}
 module Lib where
 
---import qualified Data.ByteString.Lazy.Char8 as L8
+import qualified Data.ByteString.Lazy.Char8 as L8
 import Data.Aeson
 import Network.Wreq
 import Control.Lens
 import Control.Monad
-import Text.HTML.Scalpel
+import Data.Traversable as DT
+import Data.Maybe
 
+data ItemType
+    = APITopStories
+    | APIStory Int
+    | APIComment Int
+    deriving (Eq, Show)
+
+baseURL = "https://hacker-news.firebaseio.com/v0/"
+
+getURL :: ItemType -> String
+getURL APITopStories  = baseURL ++ "topstories.json"
+getURL (APIStory x)   = baseURL ++ "item/" ++ (show x) ++ ".json"
+getURL (APIComment x) = baseURL ++ "item/" ++ (show x) ++ ".json"
 
 type Author = String
 data Comment = Comment { commentAuthor :: Author
                        , commentChildren :: [Comment]
                        } deriving (Eq, Show)
 
-data Post = Post { postTitle :: String
-                 , postURL :: Maybe String
-                 , postText :: Maybe String
-                 , postAuthor :: Author
-                 , postTime :: Integer
-                 , postNumComments :: [Int]
-                 } deriving (Eq, Show)
+data Post
+    = Link { linkTitle :: String
+           , linkURL :: Maybe String
+           , linkText :: Maybe String
+           , linkAuthor :: Author
+           , linkTime :: Integer
+           , linkComments :: [Comment]
+           }
+    | Text { textTitle :: String
+           , textText :: String
+           , textAuthor :: Author
+           , textTime :: Integer
+           , textComments :: [Comment]
+           }
+    deriving (Eq, Show)
 
-instance FromJSON Post where
-    parseJSON (Object v) = Post <$>
+data Story = Story { storyTitle :: String
+                   , storyURL :: Maybe String
+                   , storyText :: Maybe String
+                   , storyAuthor :: String
+                   , storyTime :: Integer
+                   , storyComments :: [Int]
+                   } deriving (Show, Eq)
+
+instance FromJSON Story where
+    parseJSON (Object v) = Story <$>
         v .: "title" <*>
         v .:? "url" <*>
         v .:? "text" <*>
@@ -32,39 +61,23 @@ instance FromJSON Post where
         v .:? "kids" .!= []
     parseJSON _ = mzero
 
-groupBy2 :: [a] -> [(a, a)]
-groupBy2 [] = []
-groupBy2 (x:y:xs) = (x, y) : groupBy2 xs
-groupBy2 (x:[]) = error "Not divisible by 2"
+getTopStories :: IO [IO Story]
+getTopStories = do
+    topStories <- getTopStories'
+    return $ getStories topStories
 
-dropLast :: Int -> [a] -> [a]
-dropLast x = reverse . drop x . reverse
+getStories :: [Int] -> [IO Story]
+getStories = map getStory
 
-scrapePost :: Scraper String String
-scrapePost = do
-    x <- text $ "td" @: [hasClass "title"] // "a" @: [hasClass "storylink"]
-    return x
+getStory :: Int -> IO Story
+getStory x = do
+    response <- get $ getURL (APIStory x)
+    return $ unsafeDecode (response ^. responseBody)
 
-type Title = String
-type Points = Int
-data HomeRow
-    = TitleRow Title (Maybe URL)
-    | AuthorRow Points Author String Int
-    deriving (Show, Eq)
+getTopStories' :: IO [Int]
+getTopStories' = do
+    response <- get $ getURL APITopStories
+    return $ unsafeDecode (response ^. responseBody)
 
-mainBody :: Selector
-mainBody = "table" @: [hasClass "itemlist"]
-
-posts :: Scraper String [String]
-posts = chroot mainBody posts'
-    where
-        posts' :: Scraper String [String]
-        posts' = do
-            rows <- innerHTMLs $ "tr" @: [notP (hasClass "spacer")]
-            let rows = dropLast 2 rows
-            return rows
-
-homePage :: IO (Maybe [String])
-homePage = scrapeURL "https://news.ycombinator.com" posts
-
-getTopStories = homePage
+unsafeDecode :: FromJSON a => L8.ByteString -> a
+unsafeDecode = fromJust . decode
